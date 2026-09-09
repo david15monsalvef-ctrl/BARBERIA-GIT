@@ -7,36 +7,37 @@ const servicios = useLocalStorage('barberia_servicios_v2', [
   {
     id: 1,
     cliente: 'Carlos Gómez',
-    serviciosSeleccionados: ['Corte + Barba'],
+    serviciosSeleccionados: ['Corte con máquina'],
     barbero: 'Don Ramiro',
     fecha: '2026-09-07T10:30',
-    precio: 35000,
+    precio: 25000,
     metodoPago: 'efectivo',
     estadoPago: 'pagado',
-    observaciones: 'Cliente habitual, degradado bajo.'
+    observaciones: 'Cliente habitual, degradado bajo.',
+    estrellas: 5
   },
   {
     id: 2,
     cliente: 'Andrés Morales',
-    serviciosSeleccionados: ['Corte moderno + Barba'],
+    serviciosSeleccionados: ['Corte con tijera'],
     barbero: 'Mateo',
     fecha: '2026-09-07T11:15',
-    precio: 40000,
+    precio: 30000,
     metodoPago: 'transferencia',
     estadoPago: 'pendiente',
-    observaciones: 'Pendiente comprobante Nequi.'
+    observaciones: 'Pendiente comprobante Nequi.',
+    estrellas: 0
   }
 ])
 
-// Catálogo de servicios disponibles con sus precios base
+// Catálogo de servicios actualizados (removido 'Corte con máquina + Barba')
 const catalogoServicios = [
-  { nombre: 'Corte clásico', precio: 20000 },
-  { nombre: 'Corte moderno', precio: 25000 },
+  { nombre: 'Corte con máquina', precio: 25000 },
+  { nombre: 'Corte con tijera', precio: 30000 },
   { nombre: 'Barba', precio: 15000 },
-  { nombre: 'Corte + Barba', precio: 35000 },
-  { nombre: 'Corte moderno + Barba', precio: 40000 },
-  { nombre: 'Cejas', precio: 8000 },
-  { nombre: 'Tinte', precio: 40000 }
+  { nombre: 'Cejas', precio: 10000 },
+  { nombre: 'Tinte', precio: 70000 },
+  { nombre: 'Limpieza facial', precio: 70000 }
 ]
 
 // Estados para modales y control
@@ -48,7 +49,7 @@ const servicioAEliminar = ref(null)
 // Formulario reactivo
 const formulario = ref({
   cliente: '',
-  serviciosSeleccionados: ['Corte clásico'],
+  serviciosSeleccionados: ['Corte con máquina'],
   barbero: 'Don Ramiro',
   fecha: '',
   metodoPago: 'efectivo',
@@ -85,7 +86,7 @@ function abrirModalCrear() {
   
   formulario.value = {
     cliente: '',
-    serviciosSeleccionados: ['Corte clásico'],
+    serviciosSeleccionados: ['Corte con máquina'],
     barbero: 'Don Ramiro',
     fecha: ahora.toISOString().slice(0, 16),
     metodoPago: 'efectivo',
@@ -98,7 +99,7 @@ function abrirModalCrear() {
 function abrirModalEditar(item) {
   modoEdicion.value = true
   idEdicion.value = item.id
-  const listaServicios = item.serviciosSeleccionados || [item.servicio || 'Corte clásico']
+  const listaServicios = item.serviciosSeleccionados || [item.servicio || 'Corte con máquina']
   formulario.value = { 
     ...item, 
     serviciosSeleccionados: [...listaServicios] 
@@ -129,17 +130,26 @@ function guardarServicio() {
   if (modoEdicion.value) {
     for (let i = 0; i < servicios.value.length; i++) {
       if (servicios.value[i].id === idEdicion.value) {
-        servicios.value[i] = { ...datosServicio, id: idEdicion.value }
+        const estrellasActuales = servicios.value[i].estrellas || 0
+        servicios.value[i] = { ...datosServicio, id: idEdicion.value, estrellas: estrellasActuales }
         break
       }
     }
   } else {
     servicios.value.unshift({
       ...datosServicio,
-      id: Date.now()
+      id: Date.now(),
+      estrellas: 0
     })
   }
   cerrarModal()
+}
+
+function calificarServicio(id, cantidadEstrellas) {
+  const servicio = servicios.value.find(s => s.id === id)
+  if (servicio) {
+    servicio.estrellas = cantidadEstrellas
+  }
 }
 
 function pedirConfirmacionEliminar(servicio) {
@@ -188,7 +198,7 @@ function borrarServicio() {
       <p>No hay servicios registrados en este momento.</p>
     </div>
 
-    <!-- Grid de Tarjetas (Aprovechando el ancho de pantalla) -->
+    <!-- Grid de Tarjetas -->
     <main v-else class="grid-amplio">
       <div 
         v-for="s in servicios" 
@@ -221,6 +231,24 @@ function borrarServicio() {
             <span v-else>💳 Tarjeta</span>
           </p>
           <p v-if="s.observaciones" class="observaciones-box"><strong>Notas:</strong> {{ s.observaciones }}</p>
+
+          <!-- Sección de calificación con estrellas -->
+          <div class="rating-section">
+            <span class="rating-label">Calificación del servicio:</span>
+            <div class="estrellas-container">
+              <button 
+                v-for="n in 5" 
+                :key="n" 
+                type="button" 
+                class="btn-estrella" 
+                :class="{ 'activa': n <= (s.estrellas || 0) }"
+                @click="calificarServicio(s.id, n)"
+                :title="`Calificar con ${n} estrellas`"
+              >
+                ★
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="card-acciones">
@@ -230,7 +258,7 @@ function borrarServicio() {
       </div>
     </main>
 
-    <!-- Modal Formulario Mejorado -->
+    <!-- Modal Formulario -->
     <div v-if="mostrarModal" class="modal-bg" @click.self="cerrarModal">
       <div class="modal-body">
         <h2>{{ modoEdicion ? 'Editar Registro' : 'Registrar Nuevo Servicio' }}</h2>
@@ -464,6 +492,47 @@ function borrarServicio() {
   border-radius: 6px;
   font-style: italic;
   font-size: 0.85rem !important;
+}
+
+/* Estilos para la sección de calificación por estrellas en la tarjeta */
+.rating-section {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rating-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.estrellas-container {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-estrella {
+  background: transparent;
+  border: none;
+  font-size: 1.4rem;
+  color: #cbd5e1;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.1s ease, color 0.2s ease;
+}
+
+.btn-estrella:hover {
+  transform: scale(1.2);
+}
+
+.btn-estrella.activa {
+  color: #f59e0b;
 }
 
 .card-acciones {
