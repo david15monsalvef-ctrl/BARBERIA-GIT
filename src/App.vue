@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
 // Persistencia de los datos con @vueuse/core
@@ -30,7 +30,7 @@ const servicios = useLocalStorage('barberia_servicios_v2', [
   }
 ])
 
-// Catálogo de servicios actualizados (removido 'Corte con máquina + Barba')
+// Catálogo de servicios actualizados
 const catalogoServicios = [
   { nombre: 'Corte con máquina', precio: 25000 },
   { nombre: 'Corte con tijera', precio: 30000 },
@@ -57,26 +57,46 @@ const formulario = ref({
   observaciones: ''
 })
 
-// Propiedades computadas para las métricas del panel superior
-const totalServicios = computed(() => servicios.value.length)
+// Variable reactiva para almacenar el precio calculado en tiempo real
+const precioCalculadoModal = ref(25000)
 
-const ventasTotales = computed(() => {
-  return servicios.value.reduce((acc, s) => acc + (s.precio || 0), 0)
-})
+// Función normal para recalcular el precio al marcar/desmarcar checkboxes
+function actualizarPrecioModal() {
+  let total = 0
+  for (let i = 0; i < formulario.value.serviciosSeleccionados.length; i++) {
+    const nombreServ = formulario.value.serviciosSeleccionados[i]
+    for (let j = 0; j < catalogoServicios.length; j++) {
+      if (catalogoServicios[j].nombre === nombreServ) {
+        total += catalogoServicios[j].precio
+      }
+    }
+  }
+  precioCalculadoModal.value = total
+}
 
-const dineroPendiente = computed(() => {
-  return servicios.value
-    .filter(s => s.estadoPago === 'pendiente' || s.estadoPago === 'fiado')
-    .reduce((acc, s) => acc + (s.precio || 0), 0)
-})
+// Funciones normales para obtener las métricas del panel superior (reemplazan a los computed)
+function obtenerTotalServicios() {
+  return servicios.value.length
+}
 
-// Cálculo automático del precio en base a los servicios elegidos
-const precioCalculado = computed(() => {
-  return formulario.value.serviciosSeleccionados.reduce((total, nombreServicio) => {
-    const encontrado = catalogoServicios.find(s => s.nombre === nombreServicio)
-    return total + (encontrado ? encontrado.precio : 0)
-  }, 0)
-})
+function obtenerVentasTotales() {
+  let total = 0
+  for (let i = 0; i < servicios.value.length; i++) {
+    total += (servicios.value[i].precio || 0)
+  }
+  return total
+}
+
+function obtenerDineroPendiente() {
+  let total = 0
+  for (let i = 0; i < servicios.value.length; i++) {
+    const s = servicios.value[i]
+    if (s.estadoPago === 'pendiente' || s.estadoPago === 'fiado') {
+      total += (s.precio || 0)
+    }
+  }
+  return total
+}
 
 function abrirModalCrear() {
   modoEdicion.value = false
@@ -93,6 +113,7 @@ function abrirModalCrear() {
     estadoPago: 'pendiente',
     observaciones: ''
   }
+  actualizarPrecioModal()
   mostrarModal.value = true
 }
 
@@ -104,6 +125,7 @@ function abrirModalEditar(item) {
     ...item, 
     serviciosSeleccionados: [...listaServicios] 
   }
+  actualizarPrecioModal()
   mostrarModal.value = true
 }
 
@@ -124,7 +146,7 @@ function guardarServicio() {
 
   const datosServicio = {
     ...formulario.value,
-    precio: precioCalculado.value
+    precio: precioCalculadoModal.value
   }
 
   if (modoEdicion.value) {
@@ -146,9 +168,11 @@ function guardarServicio() {
 }
 
 function calificarServicio(id, cantidadEstrellas) {
-  const servicio = servicios.value.find(s => s.id === id)
-  if (servicio) {
-    servicio.estrellas = cantidadEstrellas
+  for (let i = 0; i < servicios.value.length; i++) {
+    if (servicios.value[i].id === id) {
+      servicios.value[i].estrellas = cantidadEstrellas
+      break
+    }
   }
 }
 
@@ -179,15 +203,15 @@ function borrarServicio() {
     <section class="metrics-bar">
       <div class="metric-card">
         <span class="metric-title">Servicios</span>
-        <span class="metric-value">{{ totalServicios }}</span>
+        <span class="metric-value">{{ obtenerTotalServicios() }}</span>
       </div>
       <div class="metric-card">
         <span class="metric-title">Ventas totales</span>
-        <span class="metric-value">${{ ventasTotales.toLocaleString() }}</span>
+        <span class="metric-value">${{ obtenerVentasTotales().toLocaleString() }}</span>
       </div>
       <div class="metric-card">
         <span class="metric-title">Dinero pendiente</span>
-        <span class="metric-value text-warning">${{ dineroPendiente.toLocaleString() }}</span>
+        <span class="metric-value text-warning">${{ obtenerDineroPendiente().toLocaleString() }}</span>
       </div>
     </section>
 
@@ -277,6 +301,7 @@ function borrarServicio() {
                   type="checkbox" 
                   :value="cat.nombre" 
                   v-model="formulario.serviciosSeleccionados" 
+                  @change="actualizarPrecioModal"
                 />
                 {{ cat.nombre }} (${{ cat.precio.toLocaleString() }})
               </label>
@@ -285,7 +310,7 @@ function borrarServicio() {
 
           <div class="precio-preview">
             <span>Precio Total Calculado:</span>
-            <strong>${{ precioCalculado.toLocaleString() }}</strong>
+            <strong>${{ precioCalculadoModal.toLocaleString() }}</strong>
           </div>
 
           <label>Barbero Asignado:
