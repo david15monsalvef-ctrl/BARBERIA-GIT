@@ -60,8 +60,20 @@ const formulario = ref({
 // Variable reactiva para almacenar el precio calculado en tiempo real
 const precioCalculadoModal = ref(25000)
 
-// Función normal para recalcular el precio al marcar/desmarcar checkboxes
-function actualizarPrecioModal() {
+// Función para recalcular el precio y manejar exclusión mutua entre tipos de corte
+function actualizarPrecioModal(event) {
+  const servicioModificado = event ? event.target.value : null
+  const estaMarcado = event ? event.target.checked : false
+
+  // Regla de negocio: Corte con máquina y Corte con tijera son excluyentes
+  if (estaMarcado) {
+    if (servicioModificado === 'Corte con máquina') {
+      formulario.value.serviciosSeleccionados = formulario.value.serviciosSeleccionados.filter(s => s !== 'Corte con tijera')
+    } else if (servicioModificado === 'Corte con tijera') {
+      formulario.value.serviciosSeleccionados = formulario.value.serviciosSeleccionados.filter(s => s !== 'Corte con máquina')
+    }
+  }
+
   let total = 0
   for (let i = 0; i < formulario.value.serviciosSeleccionados.length; i++) {
     const nombreServ = formulario.value.serviciosSeleccionados[i]
@@ -74,7 +86,7 @@ function actualizarPrecioModal() {
   precioCalculadoModal.value = total
 }
 
-// Funciones normales para obtener las métricas del panel superior (reemplazan a los computed)
+// Funciones normales para obtener las métricas del panel superior
 function obtenerTotalServicios() {
   return servicios.value.length
 }
