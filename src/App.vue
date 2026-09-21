@@ -16,7 +16,7 @@ const servicios = useLocalStorage('barberia_servicios_v3', [
     estadoPago: 'pagado',
     observaciones: 'Cliente habitual, degradado bajo.',
     estrellas: 5,
-    foto: null
+    fotos: []
   },
   {
     id: 2,
@@ -30,7 +30,7 @@ const servicios = useLocalStorage('barberia_servicios_v3', [
     estadoPago: 'pendiente',
     observaciones: 'Pendiente comprobante Nequi.',
     estrellas: 0,
-    foto: null
+    fotos: []
   }
 ])
 
@@ -53,10 +53,12 @@ const modoEdicion = ref(false)
 const idEdicion = ref(null)
 const servicioAEliminar = ref(null)
 
-// Estados para nuevas funciones
+// Estados para nuevas funciones y validaciones en interfaz
 const criterioOrden = ref('fecha-reciente')
 const busquedaHistorialCliente = ref('')
 const alertaFidelidad = ref('')
+const errorFormulario = ref('')
+const errorCatalogo = ref('')
 const mostrarModalCierreCaja = ref(false)
 const mostrarModalCatalogo = ref(false)
 
@@ -70,7 +72,7 @@ const formulario = ref({
   metodoPago: 'efectivo',
   estadoPago: 'pendiente',
   observaciones: '',
-  foto: null
+  fotos: []
 })
 
 // Formulario para gestión del catálogo
@@ -105,23 +107,28 @@ function actualizarPrecioModal(event) {
   precioCalculadoModal.value = total
 }
 
-// Convertir foto a Base64
+// Convertir múltiples fotos a Base64 con aviso visual por peso
 function manejarSubidaFoto(event) {
-  const archivo = event.target.files[0]
-  if (!archivo) return
-  if (archivo.size > 1024 * 1024 * 2) {
-    alert('La imagen es demasiado pesada (máximo 2MB).')
-    return
+  const archivos = event.target.files
+  if (!archivos || archivos.length === 0) return
+
+  for (let i = 0; i < archivos.length; i++) {
+    const archivo = archivos[i]
+    if (archivo.size > 1024 * 1024 * 2) {
+      errorFormulario.value = `La imagen "${archivo.name}" supera el límite de 2MB.`
+      continue
+    }
+    const lector = new FileReader()
+    lector.onload = (e) => {
+      formulario.value.fotos.push(e.target.result)
+    }
+    lector.readAsDataURL(archivo)
   }
-  const lector = new FileReader()
-  lector.onload = (e) => {
-    formulario.value.foto = e.target.result
-  }
-  lector.readAsDataURL(archivo)
+  event.target.value = ''
 }
 
-function eliminarFoto() {
-  formulario.value.foto = null
+function eliminarFoto(index) {
+  formulario.value.fotos.splice(index, 1)
 }
 
 // Comprobar fidelidad del cliente por nombre ingresado
@@ -142,9 +149,10 @@ function verificarFidelidadCliente() {
 // Catálogo editable: Guardar nuevo o editar servicio del catálogo
 function guardarItemCatalogo() {
   if (!nuevoServicioCat.value.nombre.trim() || nuevoServicioCat.value.precio <= 0) {
-    alert('Ingrese un nombre válido y un precio mayor a 0.')
+    errorCatalogo.value = 'Ingrese un nombre válido y un precio mayor a 0.'
     return
   }
+  errorCatalogo.value = ''
   if (servicioEditandoCat.value !== null) {
     const idx = catalogoServicios.value.findIndex(s => s.id === servicioEditandoCat.value)
     if (idx !== -1) {
@@ -165,13 +173,13 @@ function guardarItemCatalogo() {
 function editarItemCatalogo(item) {
   servicioEditandoCat.value = item.id
   nuevoServicioCat.value = { nombre: item.nombre, precio: item.precio }
+  errorCatalogo.value = ''
 }
 
 function eliminarItemCatalogo(id) {
   catalogoServicios.value = catalogoServicios.value.filter(s => s.id !== id)
 }
 
-// Funciones reemplazo para datos derivados (sin computed)
 function obtenerEstadisticasHistorialCliente() {
   if (!busquedaHistorialCliente.value.trim()) return null
   const nombreBuscado = busquedaHistorialCliente.value.trim().toLowerCase()
@@ -329,6 +337,7 @@ function obtenerResumenCierreCaja() {
 function abrirModalCrear() {
   modoEdicion.value = false
   idEdicion.value = null
+  errorFormulario.value = ''
   const ahora = new Date()
   ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset())
   
@@ -341,7 +350,7 @@ function abrirModalCrear() {
     metodoPago: 'efectivo',
     estadoPago: 'pendiente',
     observaciones: '',
-    foto: null
+    fotos: []
   }
   alertaFidelidad.value = ''
   actualizarPrecioModal()
@@ -351,12 +360,19 @@ function abrirModalCrear() {
 function abrirModalEditar(item) {
   modoEdicion.value = true
   idEdicion.value = item.id
+  errorFormulario.value = ''
   const listaServicios = item.serviciosSeleccionados || [item.servicio || 'Corte con máquina']
+  
+  let listaFotos = item.fotos || []
+  if (item.foto && listaFotos.length === 0) {
+    listaFotos = [item.foto]
+  }
+
   formulario.value = { 
     ...item, 
     serviciosSeleccionados: [...listaServicios],
     propina: item.propina || 0,
-    foto: item.foto || null
+    fotos: [...listaFotos]
   }
   alertaFidelidad.value = ''
   actualizarPrecioModal()
@@ -369,14 +385,16 @@ function cerrarModal() {
 
 function guardarServicio() {
   if (!formulario.value.cliente.trim()) {
-    alert('Por favor ingrese el nombre del cliente.')
+    errorFormulario.value = 'Por favor ingrese el nombre del cliente.'
     return
   }
 
   if (formulario.value.serviciosSeleccionados.length === 0) {
-    alert('Debe seleccionar al menos un servicio.')
+    errorFormulario.value = 'Debe seleccionar al menos un servicio.'
     return
   }
+
+  errorFormulario.value = ''
 
   let finalPrecio = precioCalculadoModal.value
   if (alertaFidelidad.value) {
@@ -504,7 +522,7 @@ function borrarServicio() {
 
     <!-- Panel de Comisiones por Barbero -->
     <section class="comisiones-panel">
-      <h4>💼 Comisiones del Día (50% de servicios)</h4>
+      <h4>💼 Comisiones totales (50% de servicios)</h4>
       <div class="comisiones-grid">
         <div v-for="(comision, barb) in obtenerComisionesBarberos()" :key="barb" class="comision-card">
           <span>{{ barb }}</span>
@@ -544,8 +562,13 @@ function borrarServicio() {
                 </span>
               </div>
 
-              <!-- Foto antes y después -->
-              <div v-if="s.foto" class="card-foto">
+              <!-- Fotos múltiples del resultado -->
+              <div v-if="s.fotos && s.fotos.length > 0" class="card-fotos-grid">
+                <div v-for="(img, idx) in s.fotos" :key="idx" class="card-foto">
+                  <img :src="img" alt="Foto servicio" />
+                </div>
+              </div>
+              <div v-else-if="s.foto" class="card-foto">
                 <img :src="s.foto" alt="Foto servicio" />
               </div>
 
@@ -605,7 +628,11 @@ function borrarServicio() {
       <div class="modal-body">
         <h2>{{ modoEdicion ? 'Editar Registro' : 'Registrar Nuevo Servicio' }}</h2>
         
-        <!-- Alerta Descuento por Fidelidad -->
+        <!-- Aviso visual en lugar de alert() -->
+        <div v-if="errorFormulario" class="alerta-error">
+          ⚠️ {{ errorFormulario }}
+        </div>
+
         <div v-if="alertaFidelidad" class="alerta-fidelidad">
           🎉 {{ alertaFidelidad }}
         </div>
@@ -616,7 +643,6 @@ function borrarServicio() {
             <input type="text" v-model="formulario.cliente" @input="verificarFidelidadCliente" placeholder="Ej. Juan Pérez" required />
           </label>
 
-          <!-- Selección Múltiple de Servicios con Checkboxes -->
           <fieldset class="fieldset-servicios">
             <legend>Servicios a Realizar (Seleccione uno o varios):</legend>
             <div class="checkbox-grid">
@@ -671,12 +697,15 @@ function borrarServicio() {
             </label>
           </div>
 
-          <label>Foto del Resultado (Antes y Después):
-            <input type="file" accept="image/*" @change="manejarSubidaFoto" />
+          <label>Fotos del Resultado (Puedes seleccionar varias):
+            <input type="file" accept="image/*" multiple @change="manejarSubidaFoto" />
           </label>
-          <div v-if="formulario.foto" class="preview-foto-container">
-            <img :src="formulario.foto" alt="Preview" />
-            <button type="button" class="btn btn-peligro btn-sm" @click="eliminarFoto">Quitar foto</button>
+          
+          <div v-if="formulario.fotos && formulario.fotos.length > 0" class="preview-fotos-list">
+            <div v-for="(img, idx) in formulario.fotos" :key="idx" class="preview-foto-container">
+              <img :src="img" alt="Preview" />
+              <button type="button" class="btn btn-peligro btn-sm" @click="eliminarFoto(idx)">Quitar</button>
+            </div>
           </div>
 
           <label>Observaciones o Notas:
@@ -695,6 +724,12 @@ function borrarServicio() {
     <div v-if="mostrarModalCatalogo" class="modal-bg" @click.self="mostrarModalCatalogo = false">
       <div class="modal-body">
         <h2>⚙️ Gestión del Catálogo de Servicios</h2>
+
+        <!-- Aviso visual para catálogo -->
+        <div v-if="errorCatalogo" class="alerta-error">
+          ⚠️ {{ errorCatalogo }}
+        </div>
+
         <div class="catalogo-form-container">
           <input type="text" v-model="nuevoServicioCat.nombre" placeholder="Nombre del servicio" />
           <input type="number" v-model="nuevoServicioCat.precio" placeholder="Precio base" />
@@ -779,7 +814,6 @@ function borrarServicio() {
 .header h1 { margin: 0; font-size: 1.8rem; }
 .header p { margin: 6px 0 0 0; color: #94a3b8; font-size: 0.95rem; }
 
-/* Panel de Deudas */
 .panel-deudas {
   background: #fef2f2;
   border: 1px solid #fecaca;
@@ -801,7 +835,6 @@ function borrarServicio() {
   font-size: 0.9rem;
 }
 
-/* Barra de métricas superior */
 .metrics-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -843,7 +876,6 @@ function borrarServicio() {
   color: #0284c7 !important;
 }
 
-/* Toolbar de Historial y Ordenamiento */
 .toolbar-section {
   display: flex;
   justify-content: space-between;
@@ -886,7 +918,6 @@ function borrarServicio() {
   border: 1px solid #e2e8f0;
 }
 
-/* Comisiones por Barbero */
 .comisiones-panel {
   background: white;
   padding: 16px 20px;
@@ -977,12 +1008,18 @@ function borrarServicio() {
 
 .card-head h3 { margin: 0; font-size: 1.2rem; color: #1e293b; text-transform: capitalize; }
 
+.card-fotos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .card-foto {
   width: 100%;
-  height: 160px;
+  height: 120px;
   overflow: hidden;
   border-radius: 8px;
-  margin-bottom: 12px;
   border: 1px solid #e2e8f0;
 }
 .card-foto img {
@@ -1163,6 +1200,17 @@ function borrarServicio() {
   margin-bottom: 15px;
 }
 
+.alerta-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+}
+
 .fieldset-servicios {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -1201,18 +1249,26 @@ function borrarServicio() {
   font-weight: 600;
 }
 
+.preview-fotos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
 .preview-foto-container {
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
   background: #f8fafc;
-  padding: 8px;
+  padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
 }
 .preview-foto-container img {
-  width: 60px;
-  height: 60px;
+  width: 50px;
+  height: 50px;
   object-fit: cover;
   border-radius: 6px;
 }
