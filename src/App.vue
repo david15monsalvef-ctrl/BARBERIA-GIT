@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
 // Persistencia de los datos con @vueuse/core
-const servicios = useLocalStorage('barberia_servicios_v2', [
+const servicios = useLocalStorage('barberia_servicios_v3', [
   {
     id: 1,
     cliente: 'Carlos Gómez',
@@ -11,34 +11,41 @@ const servicios = useLocalStorage('barberia_servicios_v2', [
     barbero: 'Don Ramiro',
     fecha: '2026-09-07T10:30',
     precio: 25000,
+    propina: 5000,
     metodoPago: 'efectivo',
     estadoPago: 'pagado',
     observaciones: 'Cliente habitual, degradado bajo.',
-    estrellas: 5
+    estrellas: 5,
+    foto: null
   },
   {
     id: 2,
     cliente: 'Andrés Morales',
     serviciosSeleccionados: ['Corte con tijera'],
     barbero: 'Mateo',
-    fecha: '2026-09-07T11:15',
+    fecha: '2026-09-07T15:15',
     precio: 30000,
+    propina: 0,
     metodoPago: 'transferencia',
     estadoPago: 'pendiente',
     observaciones: 'Pendiente comprobante Nequi.',
-    estrellas: 0
+    estrellas: 0,
+    foto: null
   }
 ])
 
-// Catálogo de servicios actualizados
-const catalogoServicios = [
-  { nombre: 'Corte con máquina', precio: 25000 },
-  { nombre: 'Corte con tijera', precio: 30000 },
-  { nombre: 'Barba', precio: 15000 },
-  { nombre: 'Cejas', precio: 10000 },
-  { nombre: 'Tinte', precio: 70000 },
-  { nombre: 'Limpieza facial', precio: 70000 }
-]
+// Catálogo de servicios editable almacenado en localStorage
+const catalogoServicios = useLocalStorage('barberia_catalogo_v1', [
+  { id: 1, nombre: 'Corte con máquina', precio: 25000 },
+  { id: 2, nombre: 'Corte con tijera', precio: 30000 },
+  { id: 3, nombre: 'Barba', precio: 15000 },
+  { id: 4, nombre: 'Cejas', precio: 10000 },
+  { id: 5, nombre: 'Tinte', precio: 70000 },
+  { id: 6, nombre: 'Limpieza facial', precio: 70000 }
+])
+
+// Servicios archivados (Cierre de caja)
+const serviciosArchivados = useLocalStorage('barberia_archivados_v1', [])
 
 // Estados para modales y control
 const mostrarModal = ref(false)
@@ -46,16 +53,29 @@ const modoEdicion = ref(false)
 const idEdicion = ref(null)
 const servicioAEliminar = ref(null)
 
-// Formulario reactivo
+// Estados para nuevas funciones
+const criterioOrden = ref('fecha-reciente')
+const busquedaHistorialCliente = ref('')
+const alertaFidelidad = ref('')
+const mostrarModalCierreCaja = ref(false)
+const mostrarModalCatalogo = ref(false)
+
+// Formulario para nuevo servicio / edición
 const formulario = ref({
   cliente: '',
   serviciosSeleccionados: ['Corte con máquina'],
   barbero: 'Don Ramiro',
   fecha: '',
+  propina: 0,
   metodoPago: 'efectivo',
   estadoPago: 'pendiente',
-  observaciones: ''
+  observaciones: '',
+  foto: null
 })
+
+// Formulario para gestión del catálogo
+const nuevoServicioCat = ref({ nombre: '', precio: 0 })
+const servicioEditandoCat = ref(null)
 
 // Variable reactiva para almacenar el precio calculado en tiempo real
 const precioCalculadoModal = ref(25000)
@@ -65,7 +85,6 @@ function actualizarPrecioModal(event) {
   const servicioModificado = event ? event.target.value : null
   const estaMarcado = event ? event.target.checked : false
 
-  // Regla de negocio: Corte con máquina y Corte con tijera son excluyentes
   if (estaMarcado) {
     if (servicioModificado === 'Corte con máquina') {
       formulario.value.serviciosSeleccionados = formulario.value.serviciosSeleccionados.filter(s => s !== 'Corte con tijera')
@@ -77,16 +96,123 @@ function actualizarPrecioModal(event) {
   let total = 0
   for (let i = 0; i < formulario.value.serviciosSeleccionados.length; i++) {
     const nombreServ = formulario.value.serviciosSeleccionados[i]
-    for (let j = 0; j < catalogoServicios.length; j++) {
-      if (catalogoServicios[j].nombre === nombreServ) {
-        total += catalogoServicios[j].precio
+    for (let j = 0; j < catalogoServicios.value.length; j++) {
+      if (catalogoServicios.value[j].nombre === nombreServ) {
+        total += catalogoServicios.value[j].precio
       }
     }
   }
   precioCalculadoModal.value = total
 }
 
-// Funciones normales para obtener las métricas del panel superior
+// Convertir foto a Base64
+function manejarSubidaFoto(event) {
+  const archivo = event.target.files[0]
+  if (!archivo) return
+  if (archivo.size > 1024 * 1024 * 2) {
+    alert('La imagen es demasiado pesada (máximo 2MB).')
+    return
+  }
+  const lector = new FileReader()
+  lector.onload = (e) => {
+    formulario.value.foto = e.target.result
+  }
+  lector.readAsDataURL(archivo)
+}
+
+function eliminarFoto() {
+  formulario.value.foto = null
+}
+
+// Comprobar fidelidad del cliente por nombre ingresado
+function verificarFidelidadCliente() {
+  if (!formulario.value.cliente.trim()) {
+    alertaFidelidad.value = ''
+    return
+  }
+  const nombreBusq = formulario.value.cliente.trim().toLowerCase()
+  const historialCliente = servicios.value.filter(s => s.cliente.trim().toLowerCase() === nombreBusq)
+  if (historialCliente.length >= 4 && !modoEdicion.value) {
+    alertaFidelidad.value = `¡Cliente frecuente (${historialCliente.length} visitas previas), aplica 10% de descuento!`
+  } else {
+    alertaFidelidad.value = ''
+  }
+}
+
+// Catálogo editable: Guardar nuevo o editar servicio del catálogo
+function guardarItemCatalogo() {
+  if (!nuevoServicioCat.value.nombre.trim() || nuevoServicioCat.value.precio <= 0) {
+    alert('Ingrese un nombre válido y un precio mayor a 0.')
+    return
+  }
+  if (servicioEditandoCat.value !== null) {
+    const idx = catalogoServicios.value.findIndex(s => s.id === servicioEditandoCat.value)
+    if (idx !== -1) {
+      catalogoServicios.value[idx].nombre = nuevoServicioCat.value.nombre
+      catalogoServicios.value[idx].precio = nuevoServicioCat.value.precio
+    }
+    servicioEditandoCat.value = null
+  } else {
+    catalogoServicios.value.push({
+      id: Date.now(),
+      nombre: nuevoServicioCat.value.nombre,
+      precio: nuevoServicioCat.value.precio
+    })
+  }
+  nuevoServicioCat.value = { nombre: '', precio: 0 }
+}
+
+function editarItemCatalogo(item) {
+  servicioEditandoCat.value = item.id
+  nuevoServicioCat.value = { nombre: item.nombre, precio: item.precio }
+}
+
+function eliminarItemCatalogo(id) {
+  catalogoServicios.value = catalogoServicios.value.filter(s => s.id !== id)
+}
+
+// Funciones reemplazo para datos derivados (sin computed)
+function obtenerEstadisticasHistorialCliente() {
+  if (!busquedaHistorialCliente.value.trim()) return null
+  const nombreBuscado = busquedaHistorialCliente.value.trim().toLowerCase()
+  const filtrados = servicios.value.filter(s => s.cliente.trim().toLowerCase().includes(nombreBuscado))
+  let totalGastado = 0
+  for (let i = 0; i < filtrados.length; i++) {
+    totalGastado += (filtrados[i].precio || 0) + (filtrados[i].propina || 0)
+  }
+  return {
+    visitas: filtrados.length,
+    gastado: totalGastado
+  }
+}
+
+function obtenerDeudasPorCliente() {
+  const deudas = {}
+  for (let i = 0; i < servicios.value.length; i++) {
+    const s = servicios.value[i]
+    if (s.estadoPago === 'fiado') {
+      const clienteNormalizado = s.cliente.trim()
+      if (!deudas[clienteNormalizado]) {
+        deudas[clienteNormalizado] = 0
+      }
+      deudas[clienteNormalizado] += (s.precio || 0) + (s.propina || 0)
+    }
+  }
+  return deudas
+}
+
+function obtenerComisionesBarberos() {
+  const comisiones = { 'Don Ramiro': 0, 'Mateo': 0, 'Camilo': 0 }
+  const porcentajeComision = 0.50
+  for (let i = 0; i < servicios.value.length; i++) {
+    const s = servicios.value[i]
+    if (comisiones[s.barbero] !== undefined) {
+      comisiones[s.barbero] += (s.precio || 0) * porcentajeComision
+    }
+  }
+  return comisiones
+}
+
 function obtenerTotalServicios() {
   return servicios.value.length
 }
@@ -94,7 +220,7 @@ function obtenerTotalServicios() {
 function obtenerVentasTotales() {
   let total = 0
   for (let i = 0; i < servicios.value.length; i++) {
-    total += (servicios.value[i].precio || 0)
+    total += (servicios.value[i].precio || 0) + (servicios.value[i].propina || 0)
   }
   return total
 }
@@ -104,10 +230,100 @@ function obtenerDineroPendiente() {
   for (let i = 0; i < servicios.value.length; i++) {
     const s = servicios.value[i]
     if (s.estadoPago === 'pendiente' || s.estadoPago === 'fiado') {
-      total += (s.precio || 0)
+      total += (s.precio || 0) + (s.propina || 0)
     }
   }
   return total
+}
+
+function obtenerPromedioCalificacion() {
+  let suma = 0
+  let count = 0
+  for (let i = 0; i < servicios.value.length; i++) {
+    const estrellas = servicios.value[i].estrellas || 0
+    if (estrellas > 0) {
+      suma += estrellas
+      count++
+    }
+  }
+  if (count === 0) return '0.0'
+  return (suma / count).toFixed(1)
+}
+
+function obtenerBarberoEstrella() {
+  const conteo = {}
+  for (let i = 0; i < servicios.value.length; i++) {
+    const b = servicios.value[i].barbero
+    conteo[b] = (conteo[b] || 0) + 1
+  }
+  let maxBarbero = 'Ninguno'
+  let maxCortes = 0
+  for (const barbero in conteo) {
+    if (conteo[barbero] > maxCortes) {
+      maxCortes = conteo[barbero]
+      maxBarbero = barbero
+    }
+  }
+  return maxBarbero
+}
+
+function obtenerServiciosOrdenados() {
+  const lista = [...servicios.value]
+  lista.sort((a, b) => {
+    if (criterioOrden.value === 'fecha-reciente') {
+      return new Date(b.fecha) - new Date(a.fecha)
+    } else if (criterioOrden.value === 'fecha-antigua') {
+      return new Date(a.fecha) - new Date(b.fecha)
+    } else if (criterioOrden.value === 'precio-alto') {
+      return (b.precio + (b.propina || 0)) - (a.precio + (a.propina || 0))
+    } else if (criterioOrden.value === 'precio-bajo') {
+      return (a.precio + (a.propina || 0)) - (b.precio + (b.propina || 0))
+    } else if (criterioOrden.value === 'calificacion') {
+      return (b.estrellas || 0) - (a.estrellas || 0)
+    }
+    return 0
+  })
+  return lista
+}
+
+function obtenerServiciosPorTurno(nombreTurno) {
+  const lista = obtenerServiciosOrdenados()
+  const grupo = []
+  for (let i = 0; i < lista.length; i++) {
+    const s = lista[i]
+    const hora = new Date(s.fecha).getHours()
+    if (nombreTurno === 'Mañana' && hora >= 6 && hora < 12) {
+      grupo.push(s)
+    } else if (nombreTurno === 'Tarde' && hora >= 12 && hora < 19) {
+      grupo.push(s)
+    } else if (nombreTurno === 'Noche' && (hora >= 19 || hora < 6)) {
+      grupo.push(s)
+    }
+  }
+  return grupo
+}
+
+function realizarCierreCaja() {
+  serviciosArchivados.value.push(...servicios.value)
+  servicios.value = []
+  mostrarModalCierreCaja.value = false
+}
+
+function obtenerResumenCierreCaja() {
+  let efectivo = 0
+  let transferencia = 0
+  let pendientes = 0
+  for (let i = 0; i < servicios.value.length; i++) {
+    const s = servicios.value[i]
+    const totalServicio = (s.precio || 0) + (s.propina || 0)
+    if (s.estadoPago === 'pagado') {
+      if (s.metodoPago === 'efectivo') efectivo += totalServicio
+      else if (s.metodoPago === 'transferencia' || s.metodoPago === 'tarjeta') transferencia += totalServicio
+    } else {
+      pendientes += totalServicio
+    }
+  }
+  return { efectivo, transferencia, pendientes }
 }
 
 function abrirModalCrear() {
@@ -121,10 +337,13 @@ function abrirModalCrear() {
     serviciosSeleccionados: ['Corte con máquina'],
     barbero: 'Don Ramiro',
     fecha: ahora.toISOString().slice(0, 16),
+    propina: 0,
     metodoPago: 'efectivo',
     estadoPago: 'pendiente',
-    observaciones: ''
+    observaciones: '',
+    foto: null
   }
+  alertaFidelidad.value = ''
   actualizarPrecioModal()
   mostrarModal.value = true
 }
@@ -135,8 +354,11 @@ function abrirModalEditar(item) {
   const listaServicios = item.serviciosSeleccionados || [item.servicio || 'Corte con máquina']
   formulario.value = { 
     ...item, 
-    serviciosSeleccionados: [...listaServicios] 
+    serviciosSeleccionados: [...listaServicios],
+    propina: item.propina || 0,
+    foto: item.foto || null
   }
+  alertaFidelidad.value = ''
   actualizarPrecioModal()
   mostrarModal.value = true
 }
@@ -156,9 +378,15 @@ function guardarServicio() {
     return
   }
 
+  let finalPrecio = precioCalculadoModal.value
+  if (alertaFidelidad.value) {
+    finalPrecio = finalPrecio * 0.90
+  }
+
   const datosServicio = {
     ...formulario.value,
-    precio: precioCalculadoModal.value
+    precio: finalPrecio,
+    propina: Number(formulario.value.propina) || 0
   }
 
   if (modoEdicion.value) {
@@ -206,12 +434,26 @@ function borrarServicio() {
     <header class="header">
       <div class="header-info">
         <h1>💈 Barbería Don Ramiro</h1>
-        <p>Registro de servicios</p>
+        <p>Sistema de gestión avanzada</p>
       </div>
-      <button class="btn btn-primario" @click="abrirModalCrear">+ Registrar servicio</button>
+      <div class="header-acciones">
+        <button class="btn btn-secundario" @click="mostrarModalCatalogo = true">⚙️ Gestionar Catálogo</button>
+        <button class="btn btn-secundario" @click="mostrarModalCierreCaja = true">📥 Cierre de Caja</button>
+        <button class="btn btn-primario" @click="abrirModalCrear">+ Registrar servicio</button>
+      </div>
     </header>
 
-    <!-- Barra de Métricas Financieras y Estadísticas -->
+    <!-- Panel de Alertas de Deudas y Recordatorios -->
+    <section v-if="Object.keys(obtenerDeudasPorCliente()).length > 0" class="panel-deudas">
+      <h3>⚠️ Recordatorios de Deudas (Fiados)</h3>
+      <div class="deudas-list">
+        <span v-for="(monto, cliente) in obtenerDeudasPorCliente()" :key="cliente" class="badge-deuda">
+          <strong>{{ cliente }}:</strong> ${{ monto.toLocaleString() }}
+        </span>
+      </div>
+    </section>
+
+    <!-- Barra de Métricas y Estadísticas Básicas -->
     <section class="metrics-bar">
       <div class="metric-card">
         <span class="metric-title">Servicios</span>
@@ -225,6 +467,50 @@ function borrarServicio() {
         <span class="metric-title">Dinero pendiente</span>
         <span class="metric-value text-warning">${{ obtenerDineroPendiente().toLocaleString() }}</span>
       </div>
+      <div class="metric-card">
+        <span class="metric-title">Promedio calificación</span>
+        <span class="metric-value">⭐ {{ obtenerPromedioCalificacion() }}</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">Barbero estrella</span>
+        <span class="metric-value barbero-top">✂️ {{ obtenerBarberoEstrella() }}</span>
+      </div>
+    </section>
+
+    <!-- Panel de Historial por Cliente & Controles de Ordenamiento -->
+    <section class="toolbar-section">
+      <div class="historial-busqueda">
+        <label>🔍 Historial de cliente:
+          <input type="text" v-model="busquedaHistorialCliente" placeholder="Escriba nombre del cliente..." />
+        </label>
+        <div v-if="obtenerEstadisticasHistorialCliente()" class="resultado-historial">
+          <span>Visitas: <strong>{{ obtenerEstadisticasHistorialCliente().visitas }}</strong></span>
+          <span>Gastado total: <strong>${{ obtenerEstadisticasHistorialCliente().gastado.toLocaleString() }}</strong></span>
+        </div>
+      </div>
+
+      <div class="ordenamiento-box">
+        <label>Ordenar servicios por:
+          <select v-model="criterioOrden">
+            <option value="fecha-reciente">Más recientes</option>
+            <option value="fecha-antigua">Más antiguos</option>
+            <option value="precio-alto">Mayor precio</option>
+            <option value="precio-bajo">Menor precio</option>
+            <option value="calificacion">Mayor calificación</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <!-- Panel de Comisiones por Barbero -->
+    <section class="comisiones-panel">
+      <h4>💼 Comisiones del Día (50% de servicios)</h4>
+      <div class="comisiones-grid">
+        <div v-for="(comision, barb) in obtenerComisionesBarberos()" :key="barb" class="comision-card">
+          <span>{{ barb }}</span>
+          <strong>${{ comision.toLocaleString() }}</strong>
+        </div>
+      </div>
     </section>
 
     <h2 class="section-title">Servicios registrados</h2>
@@ -234,81 +520,107 @@ function borrarServicio() {
       <p>No hay servicios registrados en este momento.</p>
     </div>
 
-    <!-- Grid de Tarjetas -->
-    <main v-else class="grid-amplio">
-      <div 
-        v-for="s in servicios" 
-        :key="s.id" 
-        class="card"
-        :class="{ 'card-fiado': s.estadoPago === 'fiado' }"
-      >
-        <div class="card-head">
-          <h3>{{ s.cliente }}</h3>
-          <span class="badge" :class="s.estadoPago">
-            <span v-if="s.estadoPago === 'pagado'">✅ Pagado</span>
-            <span v-else-if="s.estadoPago === 'pendiente'">⏳ Pendiente</span>
-            <span v-else>⚠️ Fiado</span>
-          </span>
-        </div>
-
-        <div class="card-body">
-          <p><strong>Servicios:</strong> 
-            <span class="tag-servicio" v-for="(serv, idx) in (s.serviciosSeleccionados || [s.servicio])" :key="idx">
-              {{ serv }}
-            </span>
-          </p>
-          <p><strong>Barbero:</strong> ✂️ {{ s.barbero }}</p>
-          <p><strong>Fecha y Hora:</strong> 📅 {{ new Date(s.fecha).toLocaleString() }}</p>
-          <p class="precio-destacado"><strong>Total:</strong> ${{ s.precio.toLocaleString() }}</p>
-          <p>
-            <strong>Método de Pago:</strong> 
-            <span v-if="s.metodoPago === 'efectivo'">💵 Efectivo</span>
-            <span v-else-if="s.metodoPago === 'transferencia'">📱 Transferencia</span>
-            <span v-else>💳 Tarjeta</span>
-          </p>
-          <p v-if="s.observaciones" class="observaciones-box"><strong>Notas:</strong> {{ s.observaciones }}</p>
-
-          <!-- Sección de calificación con estrellas -->
-          <div class="rating-section">
-            <span class="rating-label">Calificación del servicio:</span>
-            <div class="estrellas-container">
-              <button 
-                v-for="n in 5" 
-                :key="n" 
-                type="button" 
-                class="btn-estrella" 
-                :class="{ 'activa': n <= (s.estrellas || 0) }"
-                @click="calificarServicio(s.id, n)"
-                :title="`Calificar con ${n} estrellas`"
-              >
-                ★
-              </button>
-            </div>
+    <!-- Turnos del Día (Mañana, Tarde, Noche) -->
+    <div v-else>
+      <div v-for="nombreTurno in ['Mañana', 'Tarde', 'Noche']" :key="nombreTurno">
+        <div v-if="obtenerServiciosPorTurno(nombreTurno).length > 0">
+          <div class="separador-turno">
+            <span>☀️ Turno {{ nombreTurno }} ({{ obtenerServiciosPorTurno(nombreTurno).length }})</span>
           </div>
-        </div>
 
-        <div class="card-acciones">
-          <button class="btn btn-secundario" @click="abrirModalEditar(s)">✏️ Editar</button>
-          <button class="btn btn-peligro" @click="pedirConfirmacionEliminar(s)">🗑️ Eliminar</button>
+          <main class="grid-amplio">
+            <div 
+              v-for="s in obtenerServiciosPorTurno(nombreTurno)" 
+              :key="s.id" 
+              class="card"
+              :class="{ 'card-fiado': s.estadoPago === 'fiado' }"
+            >
+              <div class="card-head">
+                <h3>{{ s.cliente }}</h3>
+                <span class="badge" :class="s.estadoPago">
+                  <span v-if="s.estadoPago === 'pagado'">✅ Pagado</span>
+                  <span v-else-if="s.estadoPago === 'pendiente'">⏳ Pendiente</span>
+                  <span v-else>⚠️ Fiado</span>
+                </span>
+              </div>
+
+              <!-- Foto antes y después -->
+              <div v-if="s.foto" class="card-foto">
+                <img :src="s.foto" alt="Foto servicio" />
+              </div>
+
+              <div class="card-body">
+                <p><strong>Servicios:</strong> 
+                  <span class="tag-servicio" v-for="(serv, idx) in (s.serviciosSeleccionados || [s.servicio])" :key="idx">
+                    {{ serv }}
+                  </span>
+                </p>
+                <p><strong>Barbero:</strong> ✂️ {{ s.barbero }}</p>
+                <p><strong>Fecha y Hora:</strong> 📅 {{ new Date(s.fecha).toLocaleString() }}</p>
+                
+                <p class="precio-destacado">
+                  <strong>Total:</strong> ${{ s.precio.toLocaleString() }}
+                  <span v-if="s.propina > 0" class="propina-texto"> + ${{ s.propina.toLocaleString() }} propina</span>
+                </p>
+
+                <p>
+                  <strong>Método de Pago:</strong> 
+                  <span v-if="s.metodoPago === 'efectivo'">💵 Efectivo</span>
+                  <span v-else-if="s.metodoPago === 'transferencia'">📱 Transferencia</span>
+                  <span v-else>💳 Tarjeta</span>
+                </p>
+                <p v-if="s.observaciones" class="observaciones-box"><strong>Notas:</strong> {{ s.observaciones }}</p>
+
+                <!-- Sección de calificación con estrellas -->
+                <div class="rating-section">
+                  <span class="rating-label">Calificación del servicio:</span>
+                  <div class="estrellas-container">
+                    <button 
+                      v-for="n in 5" 
+                      :key="n" 
+                      type="button" 
+                      class="btn-estrella" 
+                      :class="{ 'activa': n <= (s.estrellas || 0) }"
+                      @click="calificarServicio(s.id, n)"
+                      :title="`Calificar con ${n} estrellas`"
+                    >
+                      ★
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="card-acciones">
+                <button class="btn btn-secundario" @click="abrirModalEditar(s)">✏️ Editar</button>
+                <button class="btn btn-peligro" @click="pedirConfirmacionEliminar(s)">🗑️ Eliminar</button>
+              </div>
+            </div>
+          </main>
         </div>
       </div>
-    </main>
+    </div>
 
     <!-- Modal Formulario -->
     <div v-if="mostrarModal" class="modal-bg" @click.self="cerrarModal">
       <div class="modal-body">
         <h2>{{ modoEdicion ? 'Editar Registro' : 'Registrar Nuevo Servicio' }}</h2>
+        
+        <!-- Alerta Descuento por Fidelidad -->
+        <div v-if="alertaFidelidad" class="alerta-fidelidad">
+          🎉 {{ alertaFidelidad }}
+        </div>
+
         <form @submit.prevent="guardarServicio">
           
           <label>Nombre del Cliente:
-            <input type="text" v-model="formulario.cliente" placeholder="Ej. Juan Pérez" required />
+            <input type="text" v-model="formulario.cliente" @input="verificarFidelidadCliente" placeholder="Ej. Juan Pérez" required />
           </label>
 
           <!-- Selección Múltiple de Servicios con Checkboxes -->
           <fieldset class="fieldset-servicios">
             <legend>Servicios a Realizar (Seleccione uno o varios):</legend>
             <div class="checkbox-grid">
-              <label v-for="cat in catalogoServicios" :key="cat.nombre" class="checkbox-label">
+              <label v-for="cat in catalogoServicios" :key="cat.id" class="checkbox-label">
                 <input 
                   type="checkbox" 
                   :value="cat.nombre" 
@@ -324,6 +636,10 @@ function borrarServicio() {
             <span>Precio Total Calculado:</span>
             <strong>${{ precioCalculadoModal.toLocaleString() }}</strong>
           </div>
+
+          <label>Propina Opcional:
+            <input type="number" v-model="formulario.propina" min="0" step="1000" placeholder="Ej. 5000" />
+          </label>
 
           <label>Barbero Asignado:
             <select v-model="formulario.barbero">
@@ -355,6 +671,14 @@ function borrarServicio() {
             </label>
           </div>
 
+          <label>Foto del Resultado (Antes y Después):
+            <input type="file" accept="image/*" @change="manejarSubidaFoto" />
+          </label>
+          <div v-if="formulario.foto" class="preview-foto-container">
+            <img :src="formulario.foto" alt="Preview" />
+            <button type="button" class="btn btn-peligro btn-sm" @click="eliminarFoto">Quitar foto</button>
+          </div>
+
           <label>Observaciones o Notas:
             <textarea v-model="formulario.observaciones" placeholder="Detalles de la cita..."></textarea>
           </label>
@@ -364,6 +688,47 @@ function borrarServicio() {
             <button type="submit" class="btn btn-primario">Guardar</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal Catálogo Editable -->
+    <div v-if="mostrarModalCatalogo" class="modal-bg" @click.self="mostrarModalCatalogo = false">
+      <div class="modal-body">
+        <h2>⚙️ Gestión del Catálogo de Servicios</h2>
+        <div class="catalogo-form-container">
+          <input type="text" v-model="nuevoServicioCat.nombre" placeholder="Nombre del servicio" />
+          <input type="number" v-model="nuevoServicioCat.precio" placeholder="Precio base" />
+          <button class="btn btn-primario" @click="guardarItemCatalogo">{{ servicioEditandoCat !== null ? 'Actualizar' : 'Agregar' }}</button>
+        </div>
+        <ul class="catalogo-list">
+          <li v-for="item in catalogoServicios" :key="item.id">
+            <span>{{ item.nombre }} - <strong>${{ item.precio.toLocaleString() }}</strong></span>
+            <div class="catalogo-acciones">
+              <button class="btn btn-secundario btn-sm" @click="editarItemCatalogo(item)">Editar</button>
+              <button class="btn btn-peligro btn-sm" @click="eliminarItemCatalogo(item.id)">Borrar</button>
+            </div>
+          </li>
+        </ul>
+        <div class="modal-btns">
+          <button class="btn btn-secundario" @click="mostrarModalCatalogo = false">Cerrar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Cierre de Caja -->
+    <div v-if="mostrarModalCierreCaja" class="modal-bg" @click.self="mostrarModalCierreCaja = false">
+      <div class="modal-body">
+        <h2>📥 Resumen de Cierre de Caja</h2>
+        <div class="cierre-resumen-box">
+          <p>Total en Efectivo: <strong>${{ obtenerResumenCierreCaja().efectivo.toLocaleString() }}</strong></p>
+          <p>Total en Transferencia/Tarjeta: <strong>${{ obtenerResumenCierreCaja().transferencia.toLocaleString() }}</strong></p>
+          <p>Pendientes por Cobrar: <strong class="text-warning">${{ obtenerResumenCierreCaja().pendientes.toLocaleString() }}</strong></p>
+        </div>
+        <p class="cierre-advertencia">Al realizar el cierre, los servicios actuales se archivarán y la vista principal quedará limpia para un nuevo día.</p>
+        <div class="modal-btns">
+          <button class="btn btn-secundario" @click="mostrarModalCierreCaja = false">Cancelar</button>
+          <button class="btn btn-peligro" @click="realizarCierreCaja">Confirmar Cierre y Archivar</button>
+        </div>
       </div>
     </div>
 
@@ -401,17 +766,47 @@ function borrarServicio() {
   border-radius: 12px;
   margin-bottom: 20px;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.header-acciones {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .header h1 { margin: 0; font-size: 1.8rem; }
 .header p { margin: 6px 0 0 0; color: #94a3b8; font-size: 0.95rem; }
 
+/* Panel de Deudas */
+.panel-deudas {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 16px 20px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+.panel-deudas h3 { margin: 0 0 10px 0; color: #991b1b; font-size: 1.1rem; }
+.deudas-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.badge-deuda {
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
 /* Barra de métricas superior */
 .metrics-bar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 20px;
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 
 .metric-card {
@@ -426,7 +821,7 @@ function borrarServicio() {
 }
 
 .metric-title {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: #64748b;
   font-weight: 600;
   text-transform: uppercase;
@@ -434,7 +829,7 @@ function borrarServicio() {
 }
 
 .metric-value {
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   color: #1e293b;
   font-weight: bold;
 }
@@ -443,10 +838,94 @@ function borrarServicio() {
   color: #d97706 !important;
 }
 
+.barbero-top {
+  font-size: 1.3rem !important;
+  color: #0284c7 !important;
+}
+
+/* Toolbar de Historial y Ordenamiento */
+.toolbar-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  background: white;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.historial-busqueda, .ordenamiento-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.historial-busqueda input, .ordenamiento-box select {
+  padding: 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.resultado-historial {
+  display: flex;
+  gap: 15px;
+  font-size: 0.85rem;
+  color: #0f172a;
+  background: #f8fafc;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+/* Comisiones por Barbero */
+.comisiones-panel {
+  background: white;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 25px;
+}
+.comisiones-panel h4 { margin: 0 0 12px 0; color: #1e293b; font-size: 1.05rem; }
+.comisiones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 15px;
+}
+.comision-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 12px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  color: #475569;
+}
+.comision-card strong { font-size: 1.2rem; color: #0f172a; }
+
 .section-title {
   font-size: 1.4rem;
   color: #1e293b;
   margin-bottom: 20px;
+}
+
+.separador-turno {
+  margin: 25px 0 15px 0;
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #334155;
+  border-bottom: 2px solid #cbd5e1;
+  padding-bottom: 6px;
 }
 
 .vacio {
@@ -498,6 +977,20 @@ function borrarServicio() {
 
 .card-head h3 { margin: 0; font-size: 1.2rem; color: #1e293b; text-transform: capitalize; }
 
+.card-foto {
+  width: 100%;
+  height: 160px;
+  overflow: hidden;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid #e2e8f0;
+}
+.card-foto img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .badge {
   padding: 4px 10px;
   border-radius: 20px;
@@ -511,6 +1004,7 @@ function borrarServicio() {
 
 .card-body p { margin: 8px 0; font-size: 0.9rem; color: #475569; }
 .precio-destacado { font-size: 1.1rem !important; color: #0f172a !important; font-weight: bold; }
+.propina-texto { font-size: 0.85rem; color: #16a34a; font-weight: 600; }
 
 .tag-servicio {
   display: inline-block;
@@ -531,7 +1025,6 @@ function borrarServicio() {
   font-size: 0.85rem !important;
 }
 
-/* Estilos para la sección de calificación por estrellas en la tarjeta */
 .rating-section {
   margin-top: 14px;
   padding-top: 10px;
@@ -589,6 +1082,7 @@ function borrarServicio() {
   font-size: 0.9rem;
   transition: background 0.2s;
 }
+.btn-sm { padding: 6px 10px; font-size: 0.8rem; }
 .btn-primario { background: #d97706; color: white; }
 .btn-primario:hover { background: #b45309; }
 
@@ -639,7 +1133,9 @@ function borrarServicio() {
 }
 
 .modal-body input[type="text"],
+.modal-body input[type="number"],
 .modal-body input[type="datetime-local"],
+.modal-body input[type="file"],
 .modal-body select,
 .modal-body textarea {
   padding: 10px 12px;
@@ -654,6 +1150,17 @@ function borrarServicio() {
 .modal-body input:focus, .modal-body select:focus, .modal-body textarea:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.alerta-fidelidad {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
 }
 
 .fieldset-servicios {
@@ -692,6 +1199,76 @@ function borrarServicio() {
   border-radius: 8px;
   color: #1e40af;
   font-weight: 600;
+}
+
+.preview-foto-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+.preview-foto-container img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.catalogo-form-container {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+.catalogo-form-container input {
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+.catalogo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px 0;
+  max-height: 250px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.catalogo-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  font-size: 0.9rem;
+}
+.catalogo-acciones {
+  display: flex;
+  gap: 6px;
+}
+
+.cierre-resumen-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 16px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 15px;
+  font-size: 1rem;
+}
+.cierre-advertencia {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-style: italic;
+  margin-bottom: 20px;
 }
 
 .form-row {
