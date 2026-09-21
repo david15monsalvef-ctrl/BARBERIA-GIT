@@ -2,7 +2,6 @@
 import { ref } from 'vue'
 import { useLocalStorage } from '@vueuse/core'
 
-// Persistencia de los datos con @vueuse/core
 const servicios = useLocalStorage('barberia_servicios_v3', [
   {
     id: 1,
@@ -34,7 +33,6 @@ const servicios = useLocalStorage('barberia_servicios_v3', [
   }
 ])
 
-// Catálogo de servicios editable almacenado en localStorage
 const catalogoServicios = useLocalStorage('barberia_catalogo_v1', [
   { id: 1, nombre: 'Corte con máquina', precio: 25000 },
   { id: 2, nombre: 'Corte con tijera', precio: 30000 },
@@ -44,16 +42,13 @@ const catalogoServicios = useLocalStorage('barberia_catalogo_v1', [
   { id: 6, nombre: 'Limpieza facial', precio: 70000 }
 ])
 
-// Servicios archivados (Cierre de caja)
 const serviciosArchivados = useLocalStorage('barberia_archivados_v1', [])
 
-// Estados para modales y control
 const mostrarModal = ref(false)
 const modoEdicion = ref(false)
 const idEdicion = ref(null)
 const servicioAEliminar = ref(null)
 
-// Estados para nuevas funciones y validaciones en interfaz
 const criterioOrden = ref('fecha-reciente')
 const busquedaHistorialCliente = ref('')
 const alertaFidelidad = ref('')
@@ -62,7 +57,6 @@ const errorCatalogo = ref('')
 const mostrarModalCierreCaja = ref(false)
 const mostrarModalCatalogo = ref(false)
 
-// Formulario para nuevo servicio / edición
 const formulario = ref({
   cliente: '',
   serviciosSeleccionados: ['Corte con máquina'],
@@ -75,14 +69,10 @@ const formulario = ref({
   fotos: []
 })
 
-// Formulario para gestión del catálogo
 const nuevoServicioCat = ref({ nombre: '', precio: 0 })
 const servicioEditandoCat = ref(null)
-
-// Variable reactiva para almacenar el precio calculado en tiempo real
 const precioCalculadoModal = ref(25000)
 
-// Función para recalcular el precio y manejar exclusión mutua entre tipos de corte
 function actualizarPrecioModal(event) {
   const servicioModificado = event ? event.target.value : null
   const estaMarcado = event ? event.target.checked : false
@@ -107,7 +97,6 @@ function actualizarPrecioModal(event) {
   precioCalculadoModal.value = total
 }
 
-// Convertir múltiples fotos a Base64 con aviso visual por peso
 function manejarSubidaFoto(event) {
   const archivos = event.target.files
   if (!archivos || archivos.length === 0) return
@@ -131,7 +120,6 @@ function eliminarFoto(index) {
   formulario.value.fotos.splice(index, 1)
 }
 
-// Comprobar fidelidad del cliente por nombre ingresado
 function verificarFidelidadCliente() {
   if (!formulario.value.cliente.trim()) {
     alertaFidelidad.value = ''
@@ -146,7 +134,6 @@ function verificarFidelidadCliente() {
   }
 }
 
-// Catálogo editable: Guardar nuevo o editar servicio del catálogo
 function guardarItemCatalogo() {
   if (!nuevoServicioCat.value.nombre.trim() || nuevoServicioCat.value.precio <= 0) {
     errorCatalogo.value = 'Ingrese un nombre válido y un precio mayor a 0.'
@@ -448,7 +435,6 @@ function borrarServicio() {
 
 <template>
   <div class="contenedor-dashboard">
-    <!-- Header Principal -->
     <header class="header">
       <div class="header-info">
         <h1>💈 Barbería Don Ramiro</h1>
@@ -461,7 +447,6 @@ function borrarServicio() {
       </div>
     </header>
 
-    <!-- Panel de Alertas de Deudas y Recordatorios -->
     <section v-if="Object.keys(obtenerDeudasPorCliente()).length > 0" class="panel-deudas">
       <h3>⚠️ Recordatorios de Deudas (Fiados)</h3>
       <div class="deudas-list">
@@ -471,7 +456,6 @@ function borrarServicio() {
       </div>
     </section>
 
-    <!-- Barra de Métricas y Estadísticas Básicas -->
     <section class="metrics-bar">
       <div class="metric-card">
         <span class="metric-title">Servicios</span>
@@ -495,7 +479,6 @@ function borrarServicio() {
       </div>
     </section>
 
-    <!-- Panel de Historial por Cliente & Controles de Ordenamiento -->
     <section class="toolbar-section">
       <div class="historial-busqueda">
         <label>🔍 Historial de cliente:
@@ -520,7 +503,6 @@ function borrarServicio() {
       </div>
     </section>
 
-    <!-- Panel de Comisiones por Barbero -->
     <section class="comisiones-panel">
       <h4>💼 Comisiones totales (50% de servicios)</h4>
       <div class="comisiones-grid">
@@ -533,12 +515,10 @@ function borrarServicio() {
 
     <h2 class="section-title">Servicios registrados</h2>
 
-    <!-- Estado Vacío -->
     <div v-if="servicios.length === 0" class="vacio">
       <p>No hay servicios registrados en este momento.</p>
     </div>
 
-    <!-- Turnos del Día (Mañana, Tarde, Noche) -->
     <div v-else>
       <div v-for="nombreTurno in ['Mañana', 'Tarde', 'Noche']" :key="nombreTurno">
         <div v-if="obtenerServiciosPorTurno(nombreTurno).length > 0">
@@ -562,7 +542,6 @@ function borrarServicio() {
                 </span>
               </div>
 
-              <!-- Fotos múltiples del resultado -->
               <div v-if="s.fotos && s.fotos.length > 0" class="card-fotos-grid">
                 <div v-for="(img, idx) in s.fotos" :key="idx" class="card-foto">
                   <img :src="img" alt="Foto servicio" />
@@ -594,7 +573,6 @@ function borrarServicio() {
                 </p>
                 <p v-if="s.observaciones" class="observaciones-box"><strong>Notas:</strong> {{ s.observaciones }}</p>
 
-                <!-- Sección de calificación con estrellas -->
                 <div class="rating-section">
                   <span class="rating-label">Calificación del servicio:</span>
                   <div class="estrellas-container">
@@ -628,7 +606,6 @@ function borrarServicio() {
       <div class="modal-body">
         <h2>{{ modoEdicion ? 'Editar Registro' : 'Registrar Nuevo Servicio' }}</h2>
         
-        <!-- Aviso visual en lugar de alert() -->
         <div v-if="errorFormulario" class="alerta-error">
           ⚠️ {{ errorFormulario }}
         </div>
@@ -640,7 +617,7 @@ function borrarServicio() {
         <form @submit.prevent="guardarServicio">
           
           <label>Nombre del Cliente:
-            <input type="text" v-model="formulario.cliente" @input="verificarFidelidadCliente" placeholder="Ej. Juan Pérez" required />
+            <input type="text" v-model="formulario.cliente" @input="verificarFidelidadCliente" placeholder="Ej. Juan Pérez" autocomplete="off" />
           </label>
 
           <fieldset class="fieldset-servicios">
@@ -676,7 +653,7 @@ function borrarServicio() {
           </label>
 
           <label>Fecha y Hora Programada:
-            <input type="datetime-local" v-model="formulario.fecha" required />
+            <input type="datetime-local" v-model="formulario.fecha" />
           </label>
 
           <div class="form-row">
@@ -725,7 +702,6 @@ function borrarServicio() {
       <div class="modal-body">
         <h2>⚙️ Gestión del Catálogo de Servicios</h2>
 
-        <!-- Aviso visual para catálogo -->
         <div v-if="errorCatalogo" class="alerta-error">
           ⚠️ {{ errorCatalogo }}
         </div>
