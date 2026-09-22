@@ -5,32 +5,32 @@ import { useLocalStorage } from '@vueuse/core'
 const servicios = useLocalStorage('barberia_servicios_v3', [
   {
     id: 1,
-    cliente: 'Carlos Gómez',
-    serviciosSeleccionados: ['Corte con máquina'],
-    barbero: 'Don Ramiro',
+    cliente: 'Pedro',
+    serviciosSeleccionados: ['Corte con máquina', 'Cejas', 'Limpieza facial'],
+    barbero: 'Mateo',
     fecha: '2026-09-22',
-    hora: '10:30',
-    precio: 25000,
-    propina: 5000,
-    metodoPago: 'efectivo',
-    estadoPago: 'pagado',
-    observaciones: 'Cliente habitual, degradado bajo.',
-    estrellas: 5,
+    hora: '14:29',
+    precio: 105000,
+    propina: 0,
+    metodoPago: 'transferencia',
+    estadoPago: 'fiado',
+    observaciones: 'no',
+    estrellas: 4,
     fotos: []
   },
   {
     id: 2,
-    cliente: 'Andrés Morales',
-    serviciosSeleccionados: ['Corte con tijera'],
-    barbero: 'Mateo',
+    cliente: 'Juan',
+    serviciosSeleccionados: ['Corte con máquina', 'Tinte'],
+    barbero: 'Don Ramiro',
     fecha: '2026-09-22',
-    hora: '15:15',
-    precio: 30000,
-    propina: 0,
-    metodoPago: 'transferencia',
+    hora: '14:29',
+    precio: 95000,
+    propina: 10000,
+    metodoPago: 'efectivo',
     estadoPago: 'pendiente',
-    observaciones: 'Pendiente comprobante Nequi.',
-    estrellas: 0,
+    observaciones: 'si',
+    estrellas: 1,
     fotos: []
   }
 ])
@@ -51,13 +51,14 @@ const modoEdicion = ref(false)
 const idEdicion = ref(null)
 const servicioAEliminar = ref(null)
 
-const criterioOrden = ref('fecha-reciente')
+const criterioOrden = ref('precio-bajo')
 const busquedaHistorialCliente = ref('')
 const alertaFidelidad = ref('')
 const errorFormulario = ref('')
 const errorCatalogo = ref('')
 const mostrarModalCierreCaja = ref(false)
 const mostrarModalCatalogo = ref(false)
+const mostrarModalArchivo = ref(false)
 
 const formulario = ref({
   cliente: '',
@@ -176,7 +177,7 @@ function obtenerEstadisticasHistorialCliente() {
   const filtrados = servicios.value.filter(s => s.cliente.trim().toLowerCase().includes(nombreBuscado))
   let totalGastado = 0
   for (let i = 0; i < filtrados.length; i++) {
-    totalGastado += (filtrados[i].precio || 0) + (filtrados[i].propina || 0)
+    totalGastado += Number(filtrados[i].precio || 0) + Number(filtrados[i].propina || 0)
   }
   return {
     visitas: filtrados.length,
@@ -193,7 +194,7 @@ function obtenerDeudasPorCliente() {
       if (!deudas[clienteNormalizado]) {
         deudas[clienteNormalizado] = 0
       }
-      deudas[clienteNormalizado] += (s.precio || 0) + (s.propina || 0)
+      deudas[clienteNormalizado] += Number(s.precio || 0) + Number(s.propina || 0)
     }
   }
   return deudas
@@ -205,7 +206,7 @@ function obtenerComisionesBarberos() {
   for (let i = 0; i < servicios.value.length; i++) {
     const s = servicios.value[i]
     if (comisiones[s.barbero] !== undefined) {
-      comisiones[s.barbero] += (s.precio || 0) * porcentajeComision
+      comisiones[s.barbero] += Number(s.precio || 0) * porcentajeComision
     }
   }
   return comisiones
@@ -218,7 +219,7 @@ function obtenerTotalServicios() {
 function obtenerVentasTotales() {
   let total = 0
   for (let i = 0; i < servicios.value.length; i++) {
-    total += (servicios.value[i].precio || 0) + (servicios.value[i].propina || 0)
+    total += Number(servicios.value[i].precio || 0) + Number(servicios.value[i].propina || 0)
   }
   return total
 }
@@ -228,7 +229,7 @@ function obtenerDineroPendiente() {
   for (let i = 0; i < servicios.value.length; i++) {
     const s = servicios.value[i]
     if (s.estadoPago === 'pendiente' || s.estadoPago === 'fiado') {
-      total += (s.precio || 0) + (s.propina || 0)
+      total += Number(s.precio || 0) + Number(s.propina || 0)
     }
   }
   return total
@@ -238,7 +239,7 @@ function obtenerPromedioCalificacion() {
   let suma = 0
   let count = 0
   for (let i = 0; i < servicios.value.length; i++) {
-    const estrellas = servicios.value[i].estrellas || 0
+    const estrellas = Number(servicios.value[i].estrellas || 0)
     if (estrellas > 0) {
       suma += estrellas
       count++
@@ -268,39 +269,26 @@ function obtenerBarberoEstrella() {
 function obtenerServiciosOrdenados() {
   const lista = [...servicios.value]
   lista.sort((a, b) => {
+    const totalA = Number(a.precio || 0) + Number(a.propina || 0)
+    const totalB = Number(b.precio || 0) + Number(b.propina || 0)
+
     const fechaA = new Date(`${a.fecha}T${a.hora || '00:00'}`)
     const fechaB = new Date(`${b.fecha}T${b.hora || '00:00'}`)
-    if (criterioOrden.value === 'fecha-reciente') {
+
+    if (criterioOrden.value === 'precio-bajo') {
+      return totalA - totalB
+    } else if (criterioOrden.value === 'precio-alto') {
+      return totalB - totalA
+    } else if (criterioOrden.value === 'fecha-reciente') {
       return fechaB - fechaA
     } else if (criterioOrden.value === 'fecha-antigua') {
       return fechaA - fechaB
-    } else if (criterioOrden.value === 'precio-alto') {
-      return (b.precio + (b.propina || 0)) - (a.precio + (a.propina || 0))
-    } else if (criterioOrden.value === 'precio-bajo') {
-      return (a.precio + (a.propina || 0)) - (b.precio + (b.propina || 0))
     } else if (criterioOrden.value === 'calificacion') {
-      return (b.estrellas || 0) - (a.estrellas || 0)
+      return Number(b.estrellas || 0) - Number(a.estrellas || 0)
     }
     return 0
   })
   return lista
-}
-
-function obtenerServiciosPorTurno(nombreTurno) {
-  const lista = obtenerServiciosOrdenados()
-  const grupo = []
-  for (let i = 0; i < lista.length; i++) {
-    const s = lista[i]
-    const horaNum = parseInt((s.hora || '00:00').split(':')[0], 10)
-    if (nombreTurno === 'Mañana' && horaNum >= 6 && horaNum < 12) {
-      grupo.push(s)
-    } else if (nombreTurno === 'Tarde' && horaNum >= 12 && horaNum < 19) {
-      grupo.push(s)
-    } else if (nombreTurno === 'Noche' && (horaNum >= 19 || horaNum < 6)) {
-      grupo.push(s)
-    }
-  }
-  return grupo
 }
 
 function realizarCierreCaja() {
@@ -309,13 +297,22 @@ function realizarCierreCaja() {
   mostrarModalCierreCaja.value = false
 }
 
+function vaciarArchivoHistorico() {
+  serviciosArchivados.value = []
+}
+
+function restaurarServicioArchivo(item) {
+  serviciosArchivados.value = serviciosArchivados.value.filter(s => s.id !== item.id)
+  servicios.value.push(item)
+}
+
 function obtenerResumenCierreCaja() {
   let efectivo = 0
   let transferencia = 0
   let pendientes = 0
   for (let i = 0; i < servicios.value.length; i++) {
     const s = servicios.value[i]
-    const totalServicio = (s.precio || 0) + (s.propina || 0)
+    const totalServicio = Number(s.precio || 0) + Number(s.propina || 0)
     if (s.estadoPago === 'pagado') {
       if (s.metodoPago === 'efectivo') efectivo += totalServicio
       else if (s.metodoPago === 'transferencia' || s.metodoPago === 'tarjeta') transferencia += totalServicio
@@ -378,7 +375,7 @@ function abrirModalEditar(item) {
     serviciosSeleccionados: [...listaServicios],
     fecha: fechaPartida,
     hora: horaPartida,
-    propina: item.propina || 0,
+    propina: Number(item.propina || 0),
     fotos: [...listaFotos]
   }
   alertaFidelidad.value = ''
@@ -426,7 +423,7 @@ function guardarServicio() {
 
   errorFormulario.value = ''
 
-  let finalPrecio = precioCalculadoModal.value
+  let finalPrecio = Number(precioCalculadoModal.value)
   if (alertaFidelidad.value) {
     finalPrecio = finalPrecio * 0.90
   }
@@ -440,7 +437,7 @@ function guardarServicio() {
   if (modoEdicion.value) {
     for (let i = 0; i < servicios.value.length; i++) {
       if (servicios.value[i].id === idEdicion.value) {
-        const estrellasActuales = servicios.value[i].estrellas || 0
+        const estrellasActuales = Number(servicios.value[i].estrellas || 0)
         servicios.value[i] = { ...datosServicio, id: idEdicion.value, estrellas: estrellasActuales }
         break
       }
@@ -458,7 +455,7 @@ function guardarServicio() {
 function calificarServicio(id, cantidadEstrellas) {
   for (let i = 0; i < servicios.value.length; i++) {
     if (servicios.value[i].id === id) {
-      servicios.value[i].estrellas = cantidadEstrellas
+      servicios.value[i].estrellas = Number(cantidadEstrellas)
       break
     }
   }
@@ -485,6 +482,7 @@ function borrarServicio() {
       </div>
       <div class="header-acciones">
         <button class="btn btn-secundario" @click="mostrarModalCatalogo = true">⚙️ Gestionar Catálogo</button>
+        <button class="btn btn-secundario" @click="mostrarModalArchivo = true">📂 Ver Archivo ({{ serviciosArchivados.length }})</button>
         <button class="btn btn-secundario" @click="mostrarModalCierreCaja = true">📥 Cierre de Caja</button>
         <button class="btn btn-primario" @click="abrirModalCrear">+ Registrar servicio</button>
       </div>
@@ -547,7 +545,7 @@ function borrarServicio() {
     </section>
 
     <section class="comisiones-panel">
-      <h4>💼 Comisiones totales(50% de servicios)</h4>
+      <h4>💼 Comisiones totales (50% de servicios)</h4>
       <div class="comisiones-grid">
         <div v-for="(comision, barb) in obtenerComisionesBarberos()" :key="barb" class="comision-card">
           <span>{{ barb }}</span>
@@ -563,83 +561,126 @@ function borrarServicio() {
     </div>
 
     <div v-else>
-      <div v-for="nombreTurno in ['Mañana', 'Tarde', 'Noche']" :key="nombreTurno">
-        <div v-if="obtenerServiciosPorTurno(nombreTurno).length > 0">
-          <div class="separador-turno">
-            <span>☀️ Turno {{ nombreTurno }} ({{ obtenerServiciosPorTurno(nombreTurno).length }})</span>
+      <main class="grid-amplio">
+        <div 
+          v-for="s in obtenerServiciosOrdenados()" 
+          :key="s.id" 
+          class="card"
+          :class="{ 'card-fiado': s.estadoPago === 'fiado' }"
+        >
+          <div class="card-head">
+            <h3>{{ s.cliente }}</h3>
+            <span class="badge" :class="s.estadoPago">
+              <span v-if="s.estadoPago === 'pagado'">✅ Pagado</span>
+              <span v-else-if="s.estadoPago === 'pendiente'">⏳ Pendiente</span>
+              <span v-else>⚠️ Fiado</span>
+            </span>
           </div>
 
-          <main class="grid-amplio">
-            <div 
-              v-for="s in obtenerServiciosPorTurno(nombreTurno)" 
-              :key="s.id" 
-              class="card"
-              :class="{ 'card-fiado': s.estadoPago === 'fiado' }"
-            >
-              <div class="card-head">
-                <h3>{{ s.cliente }}</h3>
-                <span class="badge" :class="s.estadoPago">
-                  <span v-if="s.estadoPago === 'pagado'">✅ Pagado</span>
-                  <span v-else-if="s.estadoPago === 'pendiente'">⏳ Pendiente</span>
-                  <span v-else>⚠️ Fiado</span>
-                </span>
-              </div>
+          <div v-if="s.fotos && s.fotos.length > 0" class="card-fotos-grid">
+            <div v-for="(img, idx) in s.fotos" :key="idx" class="card-foto">
+              <img :src="img" alt="Foto servicio" />
+            </div>
+          </div>
+          <div v-else-if="s.foto" class="card-foto">
+            <img :src="s.foto" alt="Foto servicio" />
+          </div>
 
-              <div v-if="s.fotos && s.fotos.length > 0" class="card-fotos-grid">
-                <div v-for="(img, idx) in s.fotos" :key="idx" class="card-foto">
-                  <img :src="img" alt="Foto servicio" />
-                </div>
-              </div>
-              <div v-else-if="s.foto" class="card-foto">
-                <img :src="s.foto" alt="Foto servicio" />
-              </div>
+          <div class="card-body">
+            <p><strong>Servicios:</strong> 
+              <span class="tag-servicio" v-for="(serv, idx) in (s.serviciosSeleccionados || [s.servicio])" :key="idx">
+                {{ serv }}
+              </span>
+            </p>
+            <p><strong>Barbero:</strong> ✂️ {{ s.barbero }}</p>
+            <p><strong>Fecha y Hora:</strong> 📅 {{ s.fecha }} 🕒 {{ s.hora || '00:00' }}</p>
+            
+            <p class="precio-destacado">
+              <strong>Total:</strong> ${{ Number(s.precio).toLocaleString() }}
+              <span v-if="Number(s.propina) > 0" class="propina-texto"> + ${{ Number(s.propina).toLocaleString() }} propina</span>
+            </p>
 
-              <div class="card-body">
-                <p><strong>Servicios:</strong> 
-                  <span class="tag-servicio" v-for="(serv, idx) in (s.serviciosSeleccionados || [s.servicio])" :key="idx">
-                    {{ serv }}
-                  </span>
-                </p>
-                <p><strong>Barbero:</strong> ✂️ {{ s.barbero }}</p>
-                <p><strong>Fecha y Hora:</strong> 📅 {{ s.fecha }} 🕒 {{ s.hora || '00:00' }}</p>
-                
-                <p class="precio-destacado">
-                  <strong>Total:</strong> ${{ s.precio.toLocaleString() }}
-                  <span v-if="s.propina > 0" class="propina-texto"> + ${{ s.propina.toLocaleString() }} propina</span>
-                </p>
+            <p>
+              <strong>Método de Pago:</strong> 
+              <span v-if="s.metodoPago === 'efectivo'">💵 Efectivo</span>
+              <span v-else-if="s.metodoPago === 'transferencia'">📱 Transferencia</span>
+              <span v-else>💳 Tarjeta</span>
+            </p>
+            <p v-if="s.observaciones" class="observaciones-box"><strong>Notas:</strong> {{ s.observaciones }}</p>
 
-                <p>
-                  <strong>Método de Pago:</strong> 
-                  <span v-if="s.metodoPago === 'efectivo'">💵 Efectivo</span>
-                  <span v-else-if="s.metodoPago === 'transferencia'">📱 Transferencia</span>
-                  <span v-else>💳 Tarjeta</span>
-                </p>
-                <p v-if="s.observaciones" class="observaciones-box"><strong>Notas:</strong> {{ s.observaciones }}</p>
-
-                <div class="rating-section">
-                  <span class="rating-label">Calificación del servicio:</span>
-                  <div class="estrellas-container">
-                    <button 
-                      v-for="n in 5" 
-                      :key="n" 
-                      type="button" 
-                      class="btn-estrella" 
-                      :class="{ 'activa': n <= (s.estrellas || 0) }"
-                      @click="calificarServicio(s.id, n)"
-                      :title="`Calificar con ${n} estrellas`"
-                    >
-                      ★
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div class="card-acciones">
-                <button class="btn btn-secundario" @click="abrirModalEditar(s)">✏️ Editar</button>
-                <button class="btn btn-peligro" @click="pedirConfirmacionEliminar(s)">🗑️ Eliminar</button>
+            <div class="rating-section">
+              <span class="rating-label">Calificación del servicio:</span>
+              <div class="estrellas-container">
+                <button 
+                  v-for="n in 5" 
+                  :key="n" 
+                  type="button" 
+                  class="btn-estrella" 
+                  :class="{ 'activa': n <= Number(s.estrellas || 0) }"
+                  @click="calificarServicio(s.id, n)"
+                  :title="`Calificar con ${n} estrellas`"
+                >
+                  ★
+                </button>
               </div>
             </div>
-          </main>
+          </div>
+
+          <div class="card-acciones">
+            <button class="btn btn-secundario" @click="abrirModalEditar(s)">✏️ Editar</button>
+            <button class="btn btn-peligro" @click="pedirConfirmacionEliminar(s)">🗑️ Eliminar</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Modal Archivo Histórico -->
+    <div v-if="mostrarModalArchivo" class="modal-bg" @click.self="mostrarModalArchivo = false">
+      <div class="modal-body modal-grande">
+        <h2>📂 Archivo Histórico de Cierres de Caja</h2>
+        
+        <div v-if="serviciosArchivados.length === 0" class="vacio-archivo">
+          <p>No hay registros históricos en el archivo.</p>
+        </div>
+
+        <div v-else>
+          <div class="archivo-acciones-top">
+            <span>Total de registros guardados: <strong>{{ serviciosArchivados.length }}</strong></span>
+            <button class="btn btn-peligro btn-sm" @click="vaciarArchivoHistorico">🗑️ Vaciar Archivo</button>
+          </div>
+
+          <div class="tabla-responsive">
+            <table class="tabla-archivo">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Cliente</th>
+                  <th>Servicios</th>
+                  <th>Barbero</th>
+                  <th>Total</th>
+                  <th>Pago</th>
+                  <th>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in serviciosArchivados" :key="item.id">
+                  <td>{{ item.fecha }} {{ item.hora }}</td>
+                  <td><strong>{{ item.cliente }}</strong></td>
+                  <td>{{ (item.serviciosSeleccionados || [item.servicio]).join(', ') }}</td>
+                  <td>{{ item.barbero }}</td>
+                  <td>${{ (Number(item.precio || 0) + Number(item.propina || 0)).toLocaleString() }}</td>
+                  <td><span class="badge" :class="item.estadoPago">{{ item.estadoPago }}</span></td>
+                  <td>
+                    <button class="btn btn-primario btn-sm" @click="restaurarServicioArchivo(item)" title="Devolver a servicios activos">↩️ Restaurar</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-btns">
+          <button class="btn btn-secundario" @click="mostrarModalArchivo = false">Cerrar</button>
         </div>
       </div>
     </div>
@@ -657,7 +698,7 @@ function borrarServicio() {
           🎉 {{ alertaFidelidad }}
         </div>
 
-        <form @submit.prevent="guardarServicio">
+        <form @submit.prevent="guardarServicio" novalidate>
           
           <label>Nombre del Cliente:
             <input type="text" v-model="formulario.cliente" @input="verificarFidelidadCliente" placeholder="Ej. Juan Pérez" autocomplete="off" />
@@ -697,17 +738,11 @@ function borrarServicio() {
 
           <div class="form-row">
             <label>Fecha Programada:
-              <input 
-                type="date" 
-                v-model="formulario.fecha" 
-              />
+              <input type="date" v-model="formulario.fecha" />
             </label>
 
             <label>Hora Programada:
-              <input 
-                type="time" 
-                v-model="formulario.hora" 
-              />
+              <input type="time" v-model="formulario.hora" />
             </label>
           </div>
 
@@ -981,15 +1016,6 @@ function borrarServicio() {
   margin-bottom: 20px;
 }
 
-.separador-turno {
-  margin: 25px 0 15px 0;
-  font-size: 1.1rem;
-  font-weight: bold;
-  color: #334155;
-  border-bottom: 2px solid #cbd5e1;
-  padding-bottom: 6px;
-}
-
 .vacio {
   text-align: center;
   padding: 60px;
@@ -1154,10 +1180,10 @@ function borrarServicio() {
 .btn-primario { background: #d97706; color: white; }
 .btn-primario:hover { background: #b45309; }
 
-.btn-secundario { background: #e2e8f0; color: #475569; flex: 1; }
+.btn-secundario { background: #e2e8f0; color: #475569; }
 .btn-secundario:hover { background: #cbd5e1; }
 
-.btn-peligro { background: #ef4444; color: white; flex: 1; }
+.btn-peligro { background: #ef4444; color: white; }
 .btn-peligro:hover { background: #dc2626; }
 
 .modal-bg {
@@ -1181,6 +1207,10 @@ function borrarServicio() {
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+}
+
+.modal-grande {
+  max-width: 900px !important;
 }
 
 .modal-body h2 { margin-top: 0; color: #1e293b; font-size: 1.4rem; margin-bottom: 20px; }
@@ -1386,6 +1416,56 @@ function borrarServicio() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.archivo-acciones-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+  font-size: 0.9rem;
+  background: #f8fafc;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.vacio-archivo {
+  text-align: center;
+  padding: 40px;
+  color: #64748b;
+}
+
+.tabla-responsive {
+  max-height: 350px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.tabla-archivo {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.tabla-archivo th {
+  background: #1e293b;
+  color: white;
+  padding: 10px 12px;
+  position: sticky;
+  top: 0;
+}
+
+.tabla-archivo td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #334155;
+}
+
+.tabla-archivo tr:nth-child(even) {
+  background: #f8fafc;
 }
 
 .modal-btns {
