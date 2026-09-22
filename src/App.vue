@@ -8,7 +8,8 @@ const servicios = useLocalStorage('barberia_servicios_v3', [
     cliente: 'Carlos Gómez',
     serviciosSeleccionados: ['Corte con máquina'],
     barbero: 'Don Ramiro',
-    fecha: '2026-09-07T10:30',
+    fecha: '2026-09-22',
+    hora: '10:30',
     precio: 25000,
     propina: 5000,
     metodoPago: 'efectivo',
@@ -22,7 +23,8 @@ const servicios = useLocalStorage('barberia_servicios_v3', [
     cliente: 'Andrés Morales',
     serviciosSeleccionados: ['Corte con tijera'],
     barbero: 'Mateo',
-    fecha: '2026-09-07T15:15',
+    fecha: '2026-09-22',
+    hora: '15:15',
     precio: 30000,
     propina: 0,
     metodoPago: 'transferencia',
@@ -62,6 +64,7 @@ const formulario = ref({
   serviciosSeleccionados: ['Corte con máquina'],
   barbero: 'Don Ramiro',
   fecha: '',
+  hora: '',
   propina: 0,
   metodoPago: 'efectivo',
   estadoPago: 'pendiente',
@@ -265,10 +268,12 @@ function obtenerBarberoEstrella() {
 function obtenerServiciosOrdenados() {
   const lista = [...servicios.value]
   lista.sort((a, b) => {
+    const fechaA = new Date(`${a.fecha}T${a.hora || '00:00'}`)
+    const fechaB = new Date(`${b.fecha}T${b.hora || '00:00'}`)
     if (criterioOrden.value === 'fecha-reciente') {
-      return new Date(b.fecha) - new Date(a.fecha)
+      return fechaB - fechaA
     } else if (criterioOrden.value === 'fecha-antigua') {
-      return new Date(a.fecha) - new Date(b.fecha)
+      return fechaA - fechaB
     } else if (criterioOrden.value === 'precio-alto') {
       return (b.precio + (b.propina || 0)) - (a.precio + (a.propina || 0))
     } else if (criterioOrden.value === 'precio-bajo') {
@@ -286,12 +291,12 @@ function obtenerServiciosPorTurno(nombreTurno) {
   const grupo = []
   for (let i = 0; i < lista.length; i++) {
     const s = lista[i]
-    const hora = new Date(s.fecha).getHours()
-    if (nombreTurno === 'Mañana' && hora >= 6 && hora < 12) {
+    const horaNum = parseInt((s.hora || '00:00').split(':')[0], 10)
+    if (nombreTurno === 'Mañana' && horaNum >= 6 && horaNum < 12) {
       grupo.push(s)
-    } else if (nombreTurno === 'Tarde' && hora >= 12 && hora < 19) {
+    } else if (nombreTurno === 'Tarde' && horaNum >= 12 && horaNum < 19) {
       grupo.push(s)
-    } else if (nombreTurno === 'Noche' && (hora >= 19 || hora < 6)) {
+    } else if (nombreTurno === 'Noche' && (horaNum >= 19 || horaNum < 6)) {
       grupo.push(s)
     }
   }
@@ -325,14 +330,19 @@ function abrirModalCrear() {
   modoEdicion.value = false
   idEdicion.value = null
   errorFormulario.value = ''
-  const ahora = new Date()
-  ahora.setMinutes(ahora.getMinutes() - ahora.getTimezoneOffset())
   
+  const ahora = new Date()
+  const anio = ahora.getFullYear()
+  const mes = String(ahora.getMonth() + 1).padStart(2, '0')
+  const dia = String(ahora.getDate()).padStart(2, '0')
+  const horaStr = String(ahora.getHours()).padStart(2, '0') + ':' + String(ahora.getMinutes()).padStart(2, '0')
+
   formulario.value = {
     cliente: '',
     serviciosSeleccionados: ['Corte con máquina'],
     barbero: 'Don Ramiro',
-    fecha: ahora.toISOString().slice(0, 16),
+    fecha: `${anio}-${mes}-${dia}`,
+    hora: horaStr,
     propina: 0,
     metodoPago: 'efectivo',
     estadoPago: 'pendiente',
@@ -355,9 +365,19 @@ function abrirModalEditar(item) {
     listaFotos = [item.foto]
   }
 
+  let fechaPartida = item.fecha ? item.fecha.split('T')[0] : ''
+  let horaPartida = item.hora || '12:00'
+  if (item.fecha && item.fecha.includes('T')) {
+    const partes = item.fecha.split('T')
+    fechaPartida = partes[0]
+    if (!item.hora) horaPartida = partes[1].substring(0, 5)
+  }
+
   formulario.value = { 
     ...item, 
     serviciosSeleccionados: [...listaServicios],
+    fecha: fechaPartida,
+    hora: horaPartida,
     propina: item.propina || 0,
     fotos: [...listaFotos]
   }
@@ -370,6 +390,14 @@ function cerrarModal() {
   mostrarModal.value = false
 }
 
+function obtenerFechaActualMinima() {
+  const ahora = new Date()
+  const anio = ahora.getFullYear()
+  const mes = String(ahora.getMonth() + 1).padStart(2, '0')
+  const dia = String(ahora.getDate()).padStart(2, '0')
+  return `${anio}-${mes}-${dia}`
+}
+
 function guardarServicio() {
   if (!formulario.value.cliente.trim()) {
     errorFormulario.value = 'Por favor ingrese el nombre del cliente.'
@@ -379,6 +407,21 @@ function guardarServicio() {
   if (formulario.value.serviciosSeleccionados.length === 0) {
     errorFormulario.value = 'Debe seleccionar al menos un servicio.'
     return
+  }
+
+  const hoyStr = obtenerFechaActualMinima()
+  if (formulario.value.fecha < hoyStr) {
+    errorFormulario.value = 'No se pueden seleccionar días u años anteriores al presente.'
+    return
+  }
+
+  if (formulario.value.fecha === hoyStr) {
+    const ahora = new Date()
+    const horaActualMin = String(ahora.getHours()).padStart(2, '0') + ':' + String(ahora.getMinutes()).padStart(2, '0')
+    if (formulario.value.hora < horaActualMin) {
+      errorFormulario.value = 'No se puede seleccionar una hora anterior a la actual para el día de hoy.'
+      return
+    }
   }
 
   errorFormulario.value = ''
@@ -504,7 +547,7 @@ function borrarServicio() {
     </section>
 
     <section class="comisiones-panel">
-      <h4>💼 Comisiones totales (50% de servicios)</h4>
+      <h4>💼 Comisiones totales(50% de servicios)</h4>
       <div class="comisiones-grid">
         <div v-for="(comision, barb) in obtenerComisionesBarberos()" :key="barb" class="comision-card">
           <span>{{ barb }}</span>
@@ -558,7 +601,7 @@ function borrarServicio() {
                   </span>
                 </p>
                 <p><strong>Barbero:</strong> ✂️ {{ s.barbero }}</p>
-                <p><strong>Fecha y Hora:</strong> 📅 {{ new Date(s.fecha).toLocaleString() }}</p>
+                <p><strong>Fecha y Hora:</strong> 📅 {{ s.fecha }} 🕒 {{ s.hora || '00:00' }}</p>
                 
                 <p class="precio-destacado">
                   <strong>Total:</strong> ${{ s.precio.toLocaleString() }}
@@ -652,9 +695,21 @@ function borrarServicio() {
             </select>
           </label>
 
-          <label>Fecha y Hora Programada:
-            <input type="datetime-local" v-model="formulario.fecha" />
-          </label>
+          <div class="form-row">
+            <label>Fecha Programada:
+              <input 
+                type="date" 
+                v-model="formulario.fecha" 
+              />
+            </label>
+
+            <label>Hora Programada:
+              <input 
+                type="time" 
+                v-model="formulario.hora" 
+              />
+            </label>
+          </div>
 
           <div class="form-row">
             <label>Método de Pago:
@@ -678,10 +733,10 @@ function borrarServicio() {
             <input type="file" accept="image/*" multiple @change="manejarSubidaFoto" />
           </label>
           
-          <div v-if="formulario.fotos && formulario.fotos.length > 0" class="preview-fotos-list">
-            <div v-for="(img, idx) in formulario.fotos" :key="idx" class="preview-foto-container">
+          <div v-if="formulario.fotos && formulario.fotos.length > 0" class="preview-fotos-grid">
+            <div v-for="(img, idx) in formulario.fotos" :key="idx" class="preview-foto-card">
               <img :src="img" alt="Preview" />
-              <button type="button" class="btn btn-peligro btn-sm" @click="eliminarFoto(idx)">Quitar</button>
+              <button type="button" class="btn-quitar-foto" @click="eliminarFoto(idx)" title="Eliminar foto">✕</button>
             </div>
           </div>
 
@@ -1147,7 +1202,8 @@ function borrarServicio() {
 
 .modal-body input[type="text"],
 .modal-body input[type="number"],
-.modal-body input[type="datetime-local"],
+.modal-body input[type="date"],
+.modal-body input[type="time"],
 .modal-body input[type="file"],
 .modal-body select,
 .modal-body textarea {
@@ -1225,28 +1281,51 @@ function borrarServicio() {
   font-weight: 600;
 }
 
-.preview-fotos-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 150px;
+.preview-fotos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 10px;
+  max-height: 180px;
   overflow-y: auto;
+  padding: 4px;
 }
 
-.preview-foto-container {
+.preview-foto-card {
+  position: relative;
+  width: 100%;
+  height: 80px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.preview-foto-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.btn-quitar-foto {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  background: #f8fafc;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
 }
-.preview-foto-container img {
-  width: 50px;
-  height: 50px;
-  object-fit: cover;
-  border-radius: 6px;
+
+.btn-quitar-foto:hover {
+  background: #dc2626;
 }
 
 .catalogo-form-container {
